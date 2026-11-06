@@ -1,0 +1,65 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: pedidoja
+      POSTGRES_PASSWORD: pedidoja_dev
+      POSTGRES_DB: pedidoja
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    ports:
+      - '127.0.0.1:5432:5432'
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pedidoja -d pedidoja"]
+      interval: 4s
+      timeout: 3s
+      retries: 15
+    restart: unless-stopped
+  api:
+    build: .
+    command: ["sh", "-c", "node src/migrate.js && node src/server.js"]
+    environment:
+      NODE_ENV: development
+      PORT: 3000
+      DATABASE_URL: postgresql://pedidoja:pedidoja_dev@db:5432/pedidoja
+      ADMIN_API_KEY: ${ADMIN_API_KEY:?Defina ADMIN_API_KEY no arquivo .env}
+      TELEGRAM_TOKEN: ${TELEGRAM_TOKEN:-}
+      TELEGRAM_WEBHOOK_SECRET: ${TELEGRAM_WEBHOOK_SECRET:?Defina TELEGRAM_WEBHOOK_SECRET no arquivo .env}
+      TELEGRAM_BOT_USERNAME: ${TELEGRAM_BOT_USERNAME:-}
+      PUBLIC_URL: ${PUBLIC_URL:-}
+    ports:
+      - '127.0.0.1:3000:3000'
+    depends_on:
+      db: { condition: service_healthy }
+    restart: unless-stopped
+  worker:
+    build: .
+    command: ["node", "src/worker.js"]
+    environment:
+      NODE_ENV: development
+      DATABASE_URL: postgresql://pedidoja:pedidoja_dev@db:5432/pedidoja
+      TELEGRAM_TOKEN: ${TELEGRAM_TOKEN:-}
+      TELEGRAM_BOT_USERNAME: ${TELEGRAM_BOT_USERNAME:-}
+    depends_on:
+      api: { condition: service_started }
+    restart: unless-stopped
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    profiles: [observability]
+    volumes:
+      - ./deploy/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - '127.0.0.1:9090:9090'
+  grafana:
+    image: grafana/grafana:11.3.0
+    profiles: [observability]
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-alterar_senha_local}
+    volumes:
+      - ./deploy/grafana/provisioning:/etc/grafana/provisioning:ro
+    ports:
+      - '127.0.0.1:3001:3000'
+    depends_on: [prometheus]
+volumes:
+  pg_data:

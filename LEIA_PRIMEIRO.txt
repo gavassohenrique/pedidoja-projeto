@@ -1,0 +1,19 @@
+PEDIDOJÁ — ENTREGAS DO PROJETO INTEGRADOR (TEMA 03)
+
+INÍCIO RÁPIDO
+1. Abra o README.md deste ZIP.
+2. Instale Docker Desktop. Copie .env.example para .env e gere duas chaves fortes.
+3. Execute docker compose up --build -d e abra http://localhost:3000.
+4. Para Telegram real, crie bot no @BotFather, configure bot, webhook HTTPS e opt-in.
+5. Veja docs/ROTEIRO_APRESENTACAO.md e materiais_entrega/ para preparar a apresentação.
+
+NESTE ZIP
+- Código Node.js + painel e APIs.
+- PostgreSQL com migrations + Docker Compose.
+- Integrações ViaCEP e Telegram, fila de mensagens e webhook.
+- Scripts/testes/CI/GitHub e plano de implantação AWS.
+- Documento de projeto, roteiro narrado e slides em Word/PDF/PowerPoint.
+
+IMPORTANTE
+Código e testes unitários foram verificados; serviço completo com PostgreSQL, bot real e
+publicação AWS depende de configuração e evidências reais do grupo. Não foi implantado.

@@ -1,0 +1,36 @@
+# Na AWS EC2. O PostgreSQL de producao DEVE ser RDS, nao container.
+services:
+  api:
+    build: .
+    command: ["sh", "-c", "node src/migrate.js && node src/server.js"]
+    env_file: .env.production
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      PG_SSL_CA_FILE: /run/secrets/aws-global-bundle.pem
+    volumes:
+      - ./certs/global-bundle.pem:/run/secrets/aws-global-bundle.pem:ro
+    restart: unless-stopped
+  worker:
+    build: .
+    command: ["node", "src/worker.js"]
+    env_file: .env.production
+    environment:
+      NODE_ENV: production
+      PG_SSL_CA_FILE: /run/secrets/aws-global-bundle.pem
+    volumes:
+      - ./certs/global-bundle.pem:/run/secrets/aws-global-bundle.pem:ro
+    depends_on: [api]
+    restart: unless-stopped
+  caddy:
+    image: caddy:2-alpine
+    ports: ['80:80', '443:443']
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on: [api]
+    restart: unless-stopped
+volumes:
+  caddy_data:
+  caddy_config:

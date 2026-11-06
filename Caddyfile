@@ -1,0 +1,5 @@
+# Substitua pelo dominio cadastrado no DNS Route 53.
+pedidoja.seudominio.com.br {
+  encode gzip
+  reverse_proxy api:3000
+}
