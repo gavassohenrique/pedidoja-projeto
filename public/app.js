@@ -4,13 +4,20 @@ const state = { clients: [], products: [], orders: [], messages: [] };
 const stages = ['recebido', 'pago', 'separado', 'enviado', 'entregue'];
 const texts = { recebido: 'Recebido', pago: 'Pago', separado: 'Separado', enviado: 'Enviado', entregue: 'Entregue' };
 let adminKey = sessionStorage.getItem('pedidoja_key') || '';
+let alertTimeout;
 function textCell(content, bold = false) { const td = document.createElement('td'); const el = bold ? document.createElement('strong') : td; el.textContent = String(content ?? '—'); if (bold) td.appendChild(el); return td; }
 function cellWithButton(row, name, cb) { const td = document.createElement('td'); const b = document.createElement('button'); b.className = 'action-button'; b.textContent = name; b.addEventListener('click', cb); td.appendChild(b); row.appendChild(td); }
 function pillCell(content, variant = '') { const td = document.createElement('td'); const span = document.createElement('span'); span.className = `pill ${variant}`; span.textContent = content; td.appendChild(span); return td; }
-function showAlert(message, error = false) { const target = $('#alert'); target.textContent = message; target.className = `alert${error ? ' error' : ''}`; target.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }
+function showAlert(message, error = false) {
+  const target = $('#alert');
+  window.clearTimeout(alertTimeout);
+  target.textContent = message;
+  target.className = `alert${error ? ' error' : ''}`;
+  alertTimeout = window.setTimeout(() => target.classList.add('hidden'), error ? 9000 : 5500);
+}
 function money(value) { return (Number(value) / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }); }
 async function request(route, options = {}) {
-  if (!adminKey) throw new Error('Clique em “Definir chave do painel” e digite ADMIN_API_KEY do arquivo .env.');
+  if (!adminKey) throw new Error('Clique em “Configurar acesso” e informe a chave ADMIN_API_KEY do arquivo .env.');
   const response = await fetch(route, { ...options, headers: { 'X-Admin-Key': adminKey, 'Content-Type': 'application/json', ...(options.headers || {}) } });
   let payload;
   try { payload = await response.json(); } catch { throw new Error(`Falha HTTP ${response.status}`); }
@@ -38,18 +45,24 @@ function renderProducts() {
   state.products.filter(p => p.ativo).forEach(p => $('#order-product').add(new Option(`${p.nome} • ${money(p.preco_centavos)}`,String(p.id)))); $('#order-product').value=current;
 }
 function renderOrders() {
-  const rows = state.orders.map(p => { const tr = document.createElement('tr');
-    tr.append(textCell(`#${p.id}`,true), textCell(p.cliente_nome), textCell(p.itens.map(i => `${i.quantidade}× ${i.produto}`).join(', ')),textCell(money(p.total_centavos)),pillCell(texts[p.status] || p.status, p.status==='entregue' ? '' : 'blue'));
+  const search = ($('#orders-search').value || '').trim().toLocaleLowerCase('pt-BR');
+  const status = $('#orders-status-filter').value;
+  const filtered = state.orders.filter(p => {
+    const matchesSearch = !search || String(p.id).includes(search.replace(/^#/, '')) || String(p.cliente_nome || '').toLocaleLowerCase('pt-BR').includes(search);
+    return matchesSearch && (!status || p.status === status);
+  });
+  const rows = filtered.map(p => { const tr = document.createElement('tr');
+    tr.append(textCell(`#${p.id}`,true), textCell(p.cliente_nome), textCell(p.itens.map(i => `${i.quantidade}× ${i.produto}`).join(', ')),textCell(money(p.total_centavos)),pillCell(texts[p.status] || p.status, { recebido: 'gray', pago: 'blue', separado: 'amber', enviado: 'blue', entregue: '' }[p.status] || 'gray'));
     const index = stages.indexOf(p.status);
     if (index < stages.length - 1) cellWithButton(tr, `→ ${texts[stages[index + 1]]}`,async () => {
       try { await request(`/api/pedidos/${p.id}/status`,{method:'PATCH',body:JSON.stringify({ status: stages[index+1] })}); await refresh(); showAlert(`Pedido #${p.id}: atualizado para ${stages[index + 1]}.`); } catch(err){showAlert(err.message,true);}
     });
     else tr.appendChild(textCell('Concluído'));
     return tr;
-  }); renderTable('#orders-body',rows,6,'Nenhum pedido criado.');
+  }); renderTable('#orders-body', rows, 6, state.orders.length ? 'Nenhum pedido encontrado com esses filtros.' : 'Nenhum pedido criado.');
 }
 function renderMessages() {
-  const rows = state.messages.map(m => { const tr = document.createElement('tr');tr.append(textCell(`#${m.id}`),textCell(m.pedido_id ? `#${m.pedido_id}` : '—'),textCell(m.direcao),textCell(m.conteudo.length > 100 ? `${m.conteudo.slice(0,100)}…` : m.conteudo),pillCell(m.status,m.status==='falha'?'red':m.status==='enfileirada'?'gray':'')); return tr; });
+  const rows = state.messages.map(m => { const tr = document.createElement('tr');tr.append(textCell(`#${m.id}`),textCell(m.pedido_id ? `#${m.pedido_id}` : '—'),textCell(m.direcao),textCell(m.conteudo.length > 100 ? `${m.conteudo.slice(0,100)}…` : m.conteudo),pillCell(m.status, m.status==='falha' ? 'red' : m.status==='enfileirada' ? 'gray' : m.status==='enviada' ? 'blue' : '')); return tr; });
   renderTable('#messages-body',rows,5,'Nenhuma mensagem registrada.');
 }
 function displayInvite(data) { const box=$('#invite'); const link=$('#invite-link'); link.href=data.link_telegram.startsWith('https://')?data.link_telegram:'#'; link.textContent=data.link_telegram; box.classList.remove('hidden'); }
@@ -61,14 +74,48 @@ async function refresh() {
     state.clients=clients;state.products=products;state.orders=orders;state.messages=messages;
     $('#s-clientes').textContent=summary.clientes;$('#s-produtos').textContent=summary.produtos;$('#s-pedidos').textContent=summary.pedidos;$('#s-enviadas').textContent=summary.mensagens_enviadas;
     renderClients();renderProducts();renderOrders();renderMessages();
-  } catch(err){showAlert(err.message,true);}
+    $('#api-state').classList.add('connected');
+    $('#api-status').textContent = 'Dados sincronizados';
+    $('#last-updated').textContent = `Atualizado às ${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`;
+  } catch(err){
+    $('#api-state').classList.remove('connected');
+    $('#api-status').textContent = adminKey ? 'Falha na conexão' : 'Aguardando acesso';
+    showAlert(err.message,true);
+  }
 }
-$('#key-btn').addEventListener('click',()=>{
-  // A chave fica somente na sessao do navegador. Nunca a divulgue a outras pessoas.
-  const next = window.prompt('Insira a ADMIN_API_KEY do arquivo .env:',adminKey);
-  if(next===null)return;
-  adminKey=next.trim();sessionStorage.setItem('pedidoja_key',adminKey);refresh();
+function openAuthDialog() {
+  $('#auth-input').value = adminKey;
+  $('#auth-dialog').showModal();
+  $('#auth-input').focus();
+}
+$('#key-btn').addEventListener('click', openAuthDialog);
+$('#auth-form').addEventListener('submit', e => {
+  e.preventDefault();
+  const next = $('#auth-input').value.trim();
+  if (!next) return;
+  adminKey = next;
+  sessionStorage.setItem('pedidoja_key', adminKey);
+  $('#auth-dialog').close();
+  refresh();
 });
+$('#auth-close').addEventListener('click', () => $('#auth-dialog').close());
+$('#auth-cancel').addEventListener('click', () => $('#auth-dialog').close());
+$('#auth-dialog').addEventListener('click', e => {
+  if (e.target === $('#auth-dialog')) $('#auth-dialog').close();
+});
+$('#orders-search').addEventListener('input', renderOrders);
+$('#orders-status-filter').addEventListener('change', renderOrders);
+function updateActiveNavigation() {
+  const hash = window.location.hash || '#visao';
+  document.querySelectorAll('.side-nav a').forEach(link => {
+    const active = link.getAttribute('href') === hash;
+    link.classList.toggle('active', active);
+    if (active) link.setAttribute('aria-current', 'page');
+    else link.removeAttribute('aria-current');
+  });
+}
+window.addEventListener('hashchange', updateActiveNavigation);
+updateActiveNavigation();
 $('#refresh-btn').addEventListener('click',refresh);
 $('#client-form').addEventListener('submit',async e=>{
   e.preventDefault();try{const data=await request('/api/clientes',{method:'POST',body:JSON.stringify(formObj(e.target))});displayInvite(data);e.target.reset();await refresh();showAlert('Cliente cadastrado! Compartilhe o link de ativação do bot.');}catch(err){showAlert(err.message,true);}
